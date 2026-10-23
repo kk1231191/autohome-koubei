@@ -40,6 +40,15 @@
   .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
   .btn-primary:hover{background:#1a52e0;border-color:#1a52e0}
   .btn[aria-disabled="true"]{opacity:.45;pointer-events:none}
+  /* 车型名输入框: 与按钮同高。存在的目的是把车型名"填进"申请链接里,
+     而不是让人去改 issue 标题 —— 一旦标题被改坏, 触发链路就断了。 */
+  .want{
+    width:190px;padding:8px 11px;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel);color:var(--text);font-size:13px;font-family:inherit;
+    outline:none;transition:.14s;
+  }
+  .want::placeholder{color:var(--text-3)}
+  .want:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
 
   /* ---------- 统计卡 ---------- */
   .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px;margin-bottom:18px}
@@ -150,9 +159,10 @@
       <div class="sub" id="sub">正在载入…</div>
     </div>
     <div class="actions">
+      <input type="text" id="want" class="want" placeholder="要抓的车型名，如 小米SU7" autocomplete="off">
+      <a class="btn btn-primary" id="request" href="#" target="_blank" rel="noopener">申请抓取</a>
+      <a class="btn" id="runlog" href="#" target="_blank" rel="noopener">抓取日志</a>
       <a class="btn" id="download" href="data/koubei.csv" download>下载 CSV</a>
-      <a class="btn" id="runlog" href="#" target="_blank" rel="noopener">查看抓取日志</a>
-      <a class="btn btn-primary" id="request" href="#" target="_blank" rel="noopener">申请抓取新车型</a>
     </div>
   </header>
 
@@ -320,7 +330,7 @@
 
     if (!state.rows.length) {
       tb.innerHTML = '<tr><td colspan="' + ncol + '"><div class="empty">' +
-        "<strong>还没有数据</strong>点击右上角「申请抓取新车型」，或在仓库的 Actions 页面手动运行一次。" +
+        "<strong>还没有数据</strong>在右上角输入车型名后点「申请抓取」，或在仓库的 Actions 页面手动运行一次。" +
         "</div></td></tr>";
       return;
     }
@@ -433,24 +443,47 @@
   // ---------- 启动 ----------
   // 仓库地址: 优先用 meta.json 里的完整仓库名(自定义域名下也正确),
   // 拿不到才从 *.github.io 的 hostname 反推。
+  var REPO_BASE = "https://github.com";
+
+  // 申请链接 = 建 issue 的表单。车型名直接从输入框取, 从根上避免
+  // "用户把标题改坏 -> 触发词丢失 -> 任务静默跳过" 这个坑。
+  function refreshRequest() {
+    var el = document.getElementById("want");
+    var name = (el && el.value || "").trim();
+    var title = "[抓取] " + (name || "车型名");
+    document.getElementById("request").href =
+      REPO_BASE + "/issues/new?labels=crawl&title=" + encodeURIComponent(title) +
+      "&body=" + encodeURIComponent(
+        name ? ("申请抓取：" + name) : "请把上面的「车型名」替换成你要查的车型，例如：零跑C10。多个车型用逗号分隔。");
+  }
+
   function setLinks(full) {
-    var base;
     if (full) {
-      base = "https://github.com/" + full;
+      REPO_BASE = "https://github.com/" + full;
     } else {
       var parts = location.hostname.split(".");
       var owner = parts[0];
       var repo = location.pathname.split("/").filter(Boolean)[0] || "";
-      base = repo ? ("https://github.com/" + owner + "/" + repo) : "https://github.com";
+      REPO_BASE = repo ? ("https://github.com/" + owner + "/" + repo) : "https://github.com";
     }
-    document.getElementById("request").href =
-      base + "/issues/new?title=" + encodeURIComponent("[抓取] 车型名") +
-      "&body=" + encodeURIComponent("请把上面的「车型名」替换成你要查的车型，例如：零跑C10。多个车型用逗号分隔。");
-    document.getElementById("runlog").href = base + "/actions/workflows/crawl.yml";
+    refreshRequest();
+    document.getElementById("runlog").href = REPO_BASE + "/actions/workflows/crawl.yml";
   }
 
   function boot() {
     setLinks(null);
+
+    var want = document.getElementById("want");
+    if (want) {
+      want.addEventListener("input", refreshRequest);
+      want.addEventListener("keydown", function (e) {
+        // 回车直接开 issue, 省一次点击
+        if (e.key === "Enter" && want.value.trim()) {
+          e.preventDefault();
+          window.open(document.getElementById("request").href, "_blank");
+        }
+      });
+    }
 
     fetch("data/meta.json", { cache: "no-store" })
       .then(function (r) { return r.ok ? r.json() : null; })
