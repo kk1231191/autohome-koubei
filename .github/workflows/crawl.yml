@@ -155,6 +155,20 @@ jobs:
       - name: 自检浏览器
         run: python setup_browser.py --check
 
+      # CI 每次都是全新环境, output/ 被 .gitignore 排除, 所以抓之前必须把上次的
+      # 数据从 docs/data 还原回来 —— 否则 existing_ids() 永远是空集,
+      # 去重失效、每次都用"本次结果"覆盖掉历史(docs/data 会被 cp 覆盖)。
+      - name: 恢复历史数据
+        run: |
+          mkdir -p output
+          if [ -f docs/data/koubei.csv ]; then
+            cp docs/data/koubei.csv output/autohome_koubei.csv
+            # 不能用 wc -l 数行数: 口碑全文里有换行符, 会多算
+            python -c "import csv;print('历史数据:', len(list(csv.reader(open('output/autohome_koubei.csv',encoding='utf-8-sig'))))-1, '行')"
+          else
+            echo "仓库里没有历史数据, 本次是首次抓取"
+          fi
+
       - name: 执行抓取
         run: |
           SERIES_SP=$(echo "$SERIES" | tr ',' ' ')
