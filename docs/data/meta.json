@@ -1,7 +1,8 @@
 {
-  "updated_at": "2026-10-23T05:59:09Z",
-  "series": "RAV4荣放,小米SU7,铂智3X",
-  "pages": "2",
-  "status": "local",
-  "run_url": ""
+  "updated_at": "2026-10-23T06:38:09Z",
+  "series": "零跑C10",
+  "pages": "3",
+  "repo": "kk1231191/autohome-koubei",
+  "status": "success",
+  "run_url": "https://github.com/kk1231191/autohome-koubei/actions/runs/39912483320"
 }
