@@ -131,6 +131,9 @@ jobs:
 
       - name: 安装依赖
         continue-on-error: true   # runner 预装了 Chrome 及其依赖, 补装失败也能跑
+        # apt 源偶尔会长时间无响应。不设超时的话这一步默认能挂 6 小时,
+        # 而且 concurrency 是串行的, 会把后面所有任务一起堵死(实测踩过)。
+        timeout-minutes: 5
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -150,6 +153,7 @@ jobs:
       - name: 准备浏览器
         if: steps.browser-cache.outputs.cache-hit != 'true'
         continue-on-error: true   # 下载失败不致命: 下一步会退回 runner 自带的 /usr/bin/google-chrome
+        timeout-minutes: 10       # 175MB, 镜像正常时十几秒, 卡住就快速放弃
         run: python setup_browser.py
 
       - name: 自检浏览器
@@ -170,6 +174,7 @@ jobs:
           fi
 
       - name: 执行抓取
+        timeout-minutes: 30       # 兜底: 单车型 200 页约需 10 分钟
         run: |
           SERIES_SP=$(echo "$SERIES" | tr ',' ' ')
           echo "开始抓取: $SERIES_SP | 页数 $PAGES"
