@@ -22,7 +22,9 @@ on:
         type: choice
         options: ['true', 'false']
   issues:
-    types: [opened]
+    # reopened 也要监听: 标题写坏了被提醒后, 改好标题再关掉重开即可重试,
+    # 不用重新建一条 issue。
+    types: [opened, reopened]
   schedule:
     # 每天 02:17 UTC = 北京时间 10:17。错开整点, 减少 runner 排队。
     # 只有仓库变量 CRAWL_SERIES 有值时才真的执行, 否则整个 job 跳过。
@@ -40,16 +42,144 @@ permissions:
   actions: read
 
 jobs:
+  # ---------------------------------------------------------------- 预检
+  # 只解析 issue 标题, 十几秒, 不装依赖不下浏览器。
+  #
+  # 为什么单独拆一个 job: 之前把"标题是否含触发词"写进 crawl 的 job 级 if,
+  # 用户把标题写成「小米SU7」(丢掉 [抓取] 前缀)时整个任务被静默 skip ——
+  # Actions 页面上什么都没有, issue 里也没有回复, 完全看不出发生了什么。
+  # 现在无论标题写成什么样, 都至少会收到一条说明格式的评论。
+  triage:
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ok: ${{ steps.parse.outputs.ok }}
+      series: ${{ steps.parse.outputs.series }}
+      pages: ${{ steps.parse.outputs.pages }}
+      reason: ${{ steps.parse.outputs.reason }}
+    steps:
+      - name: 解析 issue 标题
+        id: parse
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+          OWNER: ${{ github.repository_owner }}
+          VAR_PAGES: ${{ vars.CRAWL_PAGES }}
+        run: |
+          python - <<'PY'
+          import os, re, sys
+
+          title = os.environ.get("ISSUE_TITLE", "") or ""
+          body = os.environ.get("ISSUE_BODY", "") or ""
+          author = (os.environ.get("AUTHOR") or "").lower()
+          owner = (os.environ.get("OWNER") or "").lower()
+
+          KW = re.compile(r"(?:申请|抓取|采集|爬取|补充|更新)")
+          CJK = re.compile(r"[\u4e00-\u9fff]")
+          # 明显的闲聊词, 不能当车型名
+          NOISE = {"谢谢", "你好", "帮忙", "测试", "好的", "求助", "please", "test", "hello", "hi"}
+          has_kw = bool(KW.search(title))
+
+          def clean(t):
+              # 先去掉 [抓取] 【申请】 (采集) 这样的整块标记 ——
+              # 顺序不能反, 否则会剩一个孤立的反括号
+              t = re.sub(r"[\[【（(][^\]】）)]*[\]】）)]", " ", t)
+              t = KW.sub(" ", t)
+              t = re.sub(r"^(?:\s|[:：,，、\-–—])+", "", t)
+              return t.strip(" \t:：,，、。.!！?？")
+
+          cand = clean(title)
+          if not cand and body.strip():
+              # 标题没内容就看正文第一行
+              cand = clean(body.strip().splitlines()[0])
+
+          series = re.sub(r"[，、;；/]+", ",", cand).strip(",")
+          pages = os.environ.get("VAR_PAGES", "3") or "3"
+
+          tokens = [t.strip() for t in series.split(",") if t.strip()]
+          bad = [t for t in tokens
+                 if len(t) > 40 or t.lower() in NOISE or not (CJK.search(t) or re.fullmatch(r"[A-Za-z0-9\-\. ]{2,}", t))]
+
+          def out(**kw):
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+                  for k, v in kw.items():
+                      f.write(f"{k}={v}\n")
+
+          # 陌生人开的 issue, 必须带触发词 —— 防止有人随便开 issue 就烧掉一次运行额度。
+          # 仓库自己的 issue 页面按钮会预填 "[抓取] xxx", 正常走这条路不会丢关键词。
+          if author != owner and not has_kw:
+              out(ok="0", series="", pages=pages, reason="foreign")
+              print("::warning::非仓库所有者的 issue 缺少触发词, 视为格式提示而非抓取请求")
+              sys.exit(0)
+
+          if not tokens or bad:
+              out(ok="0", series="", pages=pages, reason="format")
+              print("::warning::标题里没解析出可用车型名")
+              sys.exit(0)
+
+          out(ok="1", series=",".join(tokens), pages=pages, reason="")
+          print(f"识别到车型: {','.join(tokens)} / {pages} 页")
+          PY
+
+      - name: 标题不合规时给出提示
+        if: steps.parse.outputs.ok != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          REASON: ${{ steps.parse.outputs.reason }}
+        run: |
+          python - <<'PY'
+          import os
+          reason = os.environ.get("REASON", "")
+          if reason == "foreign":
+              lines = [
+                  "这条 issue 没有识别到抓取指令，不会触发任务（避免无关 issue 占用抓取额度）。",
+                  "",
+                  "如果要申请抓取，请把标题改成下面这种形式，然后**关掉再重新打开**这条 issue：",
+                  "",
+                  "```",
+                  "[抓取] 零跑C10",
+                  "[抓取] 零跑C10, 小米SU7",
+                  "```",
+                  "",
+                  "或者回到数据页，在右上角输入车型名后点「申请抓取」。",
+              ]
+          else:
+              lines = [
+                  "没从标题里读到车型名，这次没有开始抓取。",
+                  "",
+                  "请把标题改成 `[抓取] 车型名`（多个车型用逗号分隔），"
+                  "然后**关掉再重新打开**这条 issue，就会重新触发：",
+                  "",
+                  "```",
+                  "[抓取] 铂智3X",
+                  "[抓取] 铂智3X, 小米SU7",
+                  "```",
+                  "",
+                  "判断车型名的依据是汽车之家车系名，例如 `零跑C10`、`小米SU7`、`铂智3X`。",
+              ]
+          lines += ["", f"（自动回复，本次未消耗抓取任务）"]
+          body = "\n".join(lines)
+          with open("comment.md", "w", encoding="utf-8") as f:
+              f.write(body)
+          print(body)
+          PY
+          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body-file comment.md || true
+          gh issue edit "$ISSUE_NUM" --repo "$REPO" --add-label "needs-format" || true
+
+  # ---------------------------------------------------------------- 抓取
   crawl:
-    # 定时任务没配 CRAWL_SERIES 就直接跳过, 不浪费额度
-    # issue 只在标题含触发词时才跑, 避免任何无关 issue 都占一次额度
+    needs: [triage]
+    # always() 不能省: triage 在 dispatch/schedule 下是 skipped,
+    # 没有 always() 时 needs 被跳过会把 crawl 一起带跳过。
     if: >-
+      always() && (
       (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'schedule' && vars.CRAWL_SERIES != '') ||
-      (github.event_name == 'issues' &&
-       (contains(github.event.issue.title, '抓取') ||
-        contains(github.event.issue.title, '采集') ||
-        contains(github.event.issue.title, '申请')))
+      (github.event_name == 'issues' && needs.triage.outputs.ok == '1'))
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
@@ -67,14 +197,15 @@ jobs:
 
       # 参数归一: 把三种触发方式统一成 SERIES / PAGES / FULL_TEXT 环境变量。
       # issue 标题必须经 env 传入, 不能内插到脚本里 —— 那是命令注入。
+      # issue 的标题解析只在 triage 里做一次, 这里直接读它的输出, 避免两处逻辑跑偏。
       - name: 解析参数
         env:
           EVENT_NAME: ${{ github.event_name }}
           IN_SERIES: ${{ inputs.series }}
           IN_PAGES: ${{ inputs.pages }}
           IN_FULL_TEXT: ${{ inputs.full_text }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
+          TRIAGE_SERIES: ${{ needs.triage.outputs.series }}
+          TRIAGE_PAGES: ${{ needs.triage.outputs.pages }}
           VAR_SERIES: ${{ vars.CRAWL_SERIES }}
           VAR_PAGES: ${{ vars.CRAWL_PAGES }}
         run: |
@@ -92,20 +223,10 @@ jobs:
               series = os.environ.get("VAR_SERIES", "")
               pages = os.environ.get("VAR_PAGES", "2") or "2"
           elif ev == "issues":
-              title = os.environ.get("ISSUE_TITLE", "")
-              body = os.environ.get("ISSUE_BODY", "") or ""
-              kw = re.compile(r"(?:申请|抓取|采集)")
-              # 车型名优先从标题取; 标题没写就看正文第一行
-              cand = title if kw.search(title) else (body.splitlines()[0] if body.strip() else title)
-              # 清洗顺序很重要: 必须先去掉 [抓取] 这类整块标记, 再删关键词。
-              # 反过来做的话 "[抓取]" 会先被吃掉左括号, 留下一个孤立的 "]"。
-              cand = re.sub(r"[\[【（(][^\]】）)]*[\]】）)]", " ", cand)
-              cand = kw.sub(" ", cand)
-              cand = cand.strip(" \t:：,，、")
-              series = cand
-              pages = os.environ.get("VAR_PAGES", "3") or "3"
-              if not kw.search(title + body) or not series:
-                  print("::error::issue 里没找到车型名, 标题请写成「[抓取] 零跑C10」")
+              series = os.environ.get("TRIAGE_SERIES", "")
+              pages = os.environ.get("TRIAGE_PAGES", "3") or "3"
+              if not series.strip():
+                  print("::error::预检没有解析出车型名, 不应走到这里")
                   sys.exit(1)
           else:
               print(f"::error::未知的触发方式 {ev}")
@@ -266,41 +387,55 @@ jobs:
           REPO: ${{ github.repository }}
           JOB_STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SERIES_ENV: ${{ needs.triage.outputs.series }}
         run: |
           python - <<'PY'
-          import csv, os
+          import collections, csv, os, re
 
-          try:
-              with open("output/autohome_koubei.csv", encoding="utf-8-sig") as f:
-                  total = len(list(csv.reader(f))) - 1
-          except Exception:
-              total = 0
-
-          series = os.environ.get("SERIES", "")
+          series_raw = os.environ.get("SERIES_ENV", "") or os.environ.get("SERIES", "")
           pages = os.environ.get("PAGES", "")
           status = os.environ.get("JOB_STATUS", "")
           run_url = os.environ.get("RUN_URL", "")
           owner, name = os.environ["REPO"].split("/", 1)
           site = f"https://{owner}.github.io/{name}/"
 
+          # 每个车型在库里有多少条 —— 这比"成功"两个字有用得多
+          per, total = collections.Counter(), 0
+          try:
+              with open("output/autohome_koubei.csv", encoding="utf-8-sig") as f:
+                  rows = list(csv.reader(f))
+              total = len(rows) - 1
+              for r in rows[1:]:
+                  if len(r) > 2:
+                      per[r[2]] += 1
+          except Exception:
+              pass
+
+          # 失败时把日志里最后几条关键行贴出来, 省得再去翻 Actions
+          tail = []
+          try:
+              with open("logs/autohome_spider.log", encoding="utf-8", errors="replace") as f:
+                  lines = f.read().splitlines()
+              keys = [l for l in lines if re.search(r"(未找到|失败|错误|异常|超时|403|完成:)", l)]
+              tail = [re.sub(r"^\S+ \S+ \w+\s+", "", l).strip() for l in keys[-6:]]
+          except Exception:
+              pass
+
           if status == "success":
-              lines = [
-                  f"已抓取 **{series}**（{pages} 页），本次成功。",
-                  "",
-                  f"累计 {total} 条口碑。",
-                  "",
-                  f"- 查看与下载：{site}",
-                  f"- 运行日志：{run_url}",
-              ]
+              lines = [f"抓取完成：**{series_raw}**（{pages} 页）。", ""]
+              for s, n in per.items():
+                  lines.append(f"- {s}：{n} 条")
+              lines += ["", f"库内合计 {total} 条口碑。", "",
+                        f"- 查看与下载：{site}", f"- 运行日志：{run_url}"]
+              if not per:
+                  lines.insert(1, "> 注意：这次没有抓到任何记录，车型名可能不是汽车之家的车系名。")
           else:
-              lines = [
-                  f"抓取 **{series}** 失败（状态：{status}）。",
-                  "",
-                  f"请点开日志看原因：{run_url}",
-                  "",
-                  "常见原因：车型名写错、目标站点临时限制访问。"
-                  "改写车型名后再开一个 issue，或稍后重试。",
-              ]
+              lines = [f"抓取 **{series_raw}** 失败（状态：{status}）。", ""]
+              if tail:
+                  lines += ["日志关键行：", "```", *tail, "```", ""]
+              lines += [f"完整日志：{run_url}", "",
+                        "常见原因：车型名不是汽车之家的车系名、目标站点临时限制访问。"]
+
           body = "\n".join(lines)
           with open("comment.md", "w", encoding="utf-8") as f:
               f.write(body)
