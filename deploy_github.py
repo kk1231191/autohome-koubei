@@ -21,6 +21,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 
 # 本机代理对 GitHub 做了 TLS 中间人, 系统证书包里有它的根证书。
 # requests 走 OpenSSL, 认这个文件; 系统 curl 是 schannel, 不认 --cacert, 所以这里用 requests。
@@ -300,20 +301,35 @@ def step_dispatch(s, full, series, pages):
     return wid
 
 
-def step_watch_run(s, full, timeout=900):
-    """等最近一次 workflow_dispatch 跑完, 边等边报状态。"""
+def _parse_iso(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def step_watch_run(s, full, since=None, timeout=900):
+    """
+    等这次派发出去的任务跑完。
+
+    不能用"列表里最新的一条"判断: 刚 dispatch 完, Actions 索引要几秒才更新,
+    这时列表里最新的还是上一次那条已完成的运行, 会立刻误报 success;
+    同时也不能退而求其次拿更老的一条。所以按 created_at 卡在派发时刻之后。
+    """
+    if since is None:
+        since = datetime.now(timezone.utc)
+    since = since - timedelta(seconds=15)   # 容忍本机与 GitHub 之间的时钟偏差
+
     t0 = time.time()
     run = None
-    while time.time() - t0 < 60:
+    while time.time() - t0 < 90:
         r = s.get(f"{API}/repos/{full}/actions/runs",
-                  params={"event": "workflow_dispatch", "per_page": 5}, timeout=20)
+                  params={"event": "workflow_dispatch", "per_page": 10}, timeout=20)
         runs = r.json().get("workflow_runs", []) if r.status_code == 200 else []
-        if runs:
-            run = runs[0]
+        fresh = [x for x in runs if _parse_iso(x["created_at"]) >= since]
+        if fresh:
+            run = fresh[0]
             break
         time.sleep(5)
     if not run:
-        print("  !! 没查到运行记录, 去 Actions 页面看")
+        print("  !! 没查到新的运行记录, 去 Actions 页面看")
         return None
 
     print(f"  运行 #{run['run_number']}: {run['html_url']}")
@@ -367,8 +383,9 @@ def main():
         # 只重跑"触发抓取"这一步, 不重复建仓库/推代码/等 Pages
         full = f"{owner}/{a.repo}"
         print(f"\n触发抓取: {full} / {a.series} / {a.pages} 页")
+        since = datetime.now(timezone.utc)
         step_dispatch(s, full, a.series, a.pages)
-        run = step_watch_run(s, full)
+        run = step_watch_run(s, full, since=since)
         r = s.get(f"{API}/repos/{full}/pages", timeout=20)
         site = (r.json().get("html_url") if r.status_code == 200 else "")
         print("\n" + "=" * 62)
@@ -397,8 +414,9 @@ def main():
         print("  已跳过(--no-run)")
         run = None
     else:
+        since = datetime.now(timezone.utc)
         step_dispatch(s, full, a.series, a.pages)
-        run = step_watch_run(s, full)
+        run = step_watch_run(s, full, since=since)
     step_labels(s, full)
 
     print("\n" + "=" * 62)
