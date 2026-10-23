@@ -7,6 +7,14 @@
 
 补齐了去重、断点续抓、指数退避重试、配置外置、解析层与抓取层分离。
 
+> **两种用法**
+> - **本机 / 局域网 / 公网隧道**（有实时进度条）：`分享给他人.bat`，详见第 3 节
+> - **没人值守、你关机也能用**（零成本，走 GitHub Actions + Pages）：
+>   - 线上数据页：https://kk1231191.github.io/autohome-koubei/
+>   - 仓库：https://github.com/kk1231191/autohome-koubei
+>   - 部署与限制说明见 [`DEPLOY_GITHUB.md`](DEPLOY_GITHUB.md)，
+>     重新部署一条命令：`python deploy_github.py all`
+
 ---
 
 ## 1. 这套代码为什么这样写
