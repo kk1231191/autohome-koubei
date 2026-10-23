@@ -1,0 +1,290 @@
+name: 抓取汽车之家口碑
+
+# 三种触发方式, 对应三类使用者:
+#   workflow_dispatch —— 你自己用: 在 Actions 页面点按钮, 表单里填车型名
+#   issues            —— 别人用: 任何有 GitHub 账号的人开一个 issue 就能申请抓取
+#   schedule          —— 定时增量: 每天自动把关注车型的最新口碑补进来
+on:
+  workflow_dispatch:
+    inputs:
+      series:
+        description: '车型名, 多个用逗号分隔 (如: 零跑C10,小米SU7)'
+        required: true
+        default: '零跑C10'
+      pages:
+        description: '每个车型抓取页数, 每页10条 (1-200)'
+        required: false
+        default: '3'
+      full_text:
+        description: '是否进详情页取全文'
+        required: false
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+  issues:
+    types: [opened]
+  schedule:
+    # 每天 02:17 UTC = 北京时间 10:17。错开整点, 减少 runner 排队。
+    # 只有仓库变量 CRAWL_SERIES 有值时才真的执行, 否则整个 job 跳过。
+    - cron: '17 2 * * *'
+
+# 同一时间只允许一个抓取任务。多人同时触发时后来的排队, 不并发跑 ——
+# 并发会撞 git push, 也是对目标站点不礼貌。
+concurrency:
+  group: crawl
+  cancel-in-progress: false
+
+permissions:
+  contents: write      # 把抓到的 CSV 提交回仓库
+  issues: write        # issue 触发时回评论
+  actions: read
+
+jobs:
+  crawl:
+    # 定时任务没配 CRAWL_SERIES 就直接跳过, 不浪费额度
+    # issue 只在标题含触发词时才跑, 避免任何无关 issue 都占一次额度
+    if: >-
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'schedule' && vars.CRAWL_SERIES != '') ||
+      (github.event_name == 'issues' &&
+       (contains(github.event.issue.title, '抓取') ||
+        contains(github.event.issue.title, '采集') ||
+        contains(github.event.issue.title, '申请')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: 取出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # push 前要 rebase, 浅克隆会报 shallow update not allowed
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      # 参数归一: 把三种触发方式统一成 SERIES / PAGES / FULL_TEXT 环境变量。
+      # issue 标题必须经 env 传入, 不能内插到脚本里 —— 那是命令注入。
+      - name: 解析参数
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IN_SERIES: ${{ inputs.series }}
+          IN_PAGES: ${{ inputs.pages }}
+          IN_FULL_TEXT: ${{ inputs.full_text }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          VAR_SERIES: ${{ vars.CRAWL_SERIES }}
+          VAR_PAGES: ${{ vars.CRAWL_PAGES }}
+        run: |
+          python - <<'PY'
+          import os, re, sys
+
+          ev = os.environ.get("EVENT_NAME", "")
+          full = "true"
+
+          if ev == "workflow_dispatch":
+              series = os.environ.get("IN_SERIES", "")
+              pages = os.environ.get("IN_PAGES", "3")
+              full = os.environ.get("IN_FULL_TEXT", "true")
+          elif ev == "schedule":
+              series = os.environ.get("VAR_SERIES", "")
+              pages = os.environ.get("VAR_PAGES", "2") or "2"
+          elif ev == "issues":
+              title = os.environ.get("ISSUE_TITLE", "")
+              body = os.environ.get("ISSUE_BODY", "") or ""
+              kw = re.compile(r"(?:申请|抓取|采集)")
+              # 车型名优先从标题取; 标题没写就看正文第一行
+              cand = title if kw.search(title) else (body.splitlines()[0] if body.strip() else title)
+              # 清洗顺序很重要: 必须先去掉 [抓取] 这类整块标记, 再删关键词。
+              # 反过来做的话 "[抓取]" 会先被吃掉左括号, 留下一个孤立的 "]"。
+              cand = re.sub(r"[\[【（(][^\]】）)]*[\]】）)]", " ", cand)
+              cand = kw.sub(" ", cand)
+              cand = cand.strip(" \t:：,，、")
+              series = cand
+              pages = os.environ.get("VAR_PAGES", "3") or "3"
+              if not kw.search(title + body) or not series:
+                  print("::error::issue 里没找到车型名, 标题请写成「[抓取] 零跑C10」")
+                  sys.exit(1)
+          else:
+              print(f"::error::未知的触发方式 {ev}")
+              sys.exit(1)
+
+          if not series.strip():
+              print("::error::没有指定车型")
+              sys.exit(1)
+
+          # 中英文逗号 / 顿号 / 分号 / 空白都当分隔符
+          series = re.sub(r"[，、;；\s]+", ",", series).strip(",")
+          try:
+              pages = str(max(1, min(200, int(pages))))
+          except ValueError:
+              pages = "3"
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
+              f.write(f"SERIES={series}\n")
+              f.write(f"PAGES={pages}\n")
+              f.write(f"FULL_TEXT={full}\n")
+          print(f"车型={series} 页数={pages} 详情页={full}")
+          PY
+
+      - name: 安装依赖
+        continue-on-error: true   # runner 预装了 Chrome 及其依赖, 补装失败也能跑
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Playwright 驱动 chromium 需要的系统库(libnss3/libatk/libgbm 等)。
+          # runner 上大多已预装, 这步通常是幂等的快速检查, 20-40 秒。
+          python -m playwright install-deps chromium
+
+      # 浏览器 150MB, 每次下载太慢。缓存命中后这步只要几秒。
+      # key 带版本号; 想换版本时改 setup_browser.py 的 DEFAULT_VERSION, key 也要同步改。
+      - name: 缓存浏览器
+        id: browser-cache
+        uses: actions/cache@v4
+        with:
+          path: browsers
+          key: cft-linux64-148.0.7778.96
+
+      - name: 准备浏览器
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        continue-on-error: true   # 下载失败不致命: 下一步会退回 runner 自带的 /usr/bin/google-chrome
+        run: python setup_browser.py
+
+      - name: 自检浏览器
+        run: python setup_browser.py --check
+
+      - name: 执行抓取
+        run: |
+          SERIES_SP=$(echo "$SERIES" | tr ',' ' ')
+          echo "开始抓取: $SERIES_SP | 页数 $PAGES"
+          EXTRA=""
+          [ "$FULL_TEXT" = "false" ] && EXTRA="--no-detail"
+          python main.py --series $SERIES_SP --pages "$PAGES" \
+                         --csv autohome_koubei.csv $EXTRA
+
+      - name: 生成结果摘要
+        if: always()
+        run: |
+          python - <<'PY'
+          import csv, glob, os
+          rows = []
+          for p in sorted(glob.glob("output/*.csv")):
+              try:
+                  with open(p, encoding="utf-8-sig") as f:
+                      n = len(list(csv.reader(f))) - 1
+                  rows.append((os.path.basename(p), n, os.path.getsize(p)))
+              except Exception:
+                  rows.append((os.path.basename(p), -1, 0))
+          path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if path:
+              with open(path, "a", encoding="utf-8") as f:
+                  f.write("## 抓取结果\n\n| 文件 | 累计条数 | 大小 |\n|---|---|---|\n")
+                  for name, n, sz in rows:
+                      f.write(f"| {name} | {n} | {sz/1024:.1f} KB |\n")
+                  f.write(f"\n车型 `{os.environ.get('SERIES','')}` / "
+                          f"{os.environ.get('PAGES','')} 页\n")
+          print(rows)
+          PY
+
+      # Pages 只能发布 /docs 目录, 所以要把 CSV 同步一份进去
+      - name: 同步到展示页
+        if: always()
+        run: |
+          mkdir -p docs/data
+          [ -f output/autohome_koubei.csv ] && cp output/autohome_koubei.csv docs/data/koubei.csv
+          cat > docs/data/meta.json <<EOF
+          {
+            "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "series": "$SERIES",
+            "pages": "$PAGES",
+            "repo": "${{ github.repository }}",
+            "status": "${{ job.status }}",
+            "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          }
+          EOF
+
+      - name: 提交结果
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # 只提交 docs/data 下的展示副本; output/*.csv 被 .gitignore 排除,
+          # 避免同一份数据在仓库里存两份
+          git add -A docs/data
+          if git diff --cached --quiet; then
+            echo "没有新数据, 跳过提交"
+            exit 0
+          fi
+          git commit -m "data: $SERIES ($PAGES 页) [skip ci]"
+          for i in 1 2 3; do
+            if git pull --rebase --autostash origin "${GITHUB_REF_NAME}" \
+               && git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "提交成功"; break
+            fi
+            echo "第 $i 次 push 失败, 5 秒后重试"; sleep 5
+          done
+
+      - name: 归档日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crawl-${{ github.run_id }}
+          path: |
+            logs/
+            output/*.csv
+            docs/data/meta.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # 别人开的 issue, 抓完回一条评论
+      - name: 回复 issue
+        if: github.event_name == 'issues' && always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import csv, os
+
+          try:
+              with open("output/autohome_koubei.csv", encoding="utf-8-sig") as f:
+                  total = len(list(csv.reader(f))) - 1
+          except Exception:
+              total = 0
+
+          series = os.environ.get("SERIES", "")
+          pages = os.environ.get("PAGES", "")
+          status = os.environ.get("JOB_STATUS", "")
+          run_url = os.environ.get("RUN_URL", "")
+          owner, name = os.environ["REPO"].split("/", 1)
+          site = f"https://{owner}.github.io/{name}/"
+
+          if status == "success":
+              lines = [
+                  f"已抓取 **{series}**（{pages} 页），本次成功。",
+                  "",
+                  f"累计 {total} 条口碑。",
+                  "",
+                  f"- 查看与下载：{site}",
+                  f"- 运行日志：{run_url}",
+              ]
+          else:
+              lines = [
+                  f"抓取 **{series}** 失败（状态：{status}）。",
+                  "",
+                  f"请点开日志看原因：{run_url}",
+                  "",
+                  "常见原因：车型名写错、目标站点临时限制访问。"
+                  "改写车型名后再开一个 issue，或稍后重试。",
+              ]
+          body = "\n".join(lines)
+          with open("comment.md", "w", encoding="utf-8") as f:
+              f.write(body)
+          print(body)
+          PY
+          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body-file comment.md || true

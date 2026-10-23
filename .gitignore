@@ -1,0 +1,24 @@
+# 浏览器二进制(150-400MB)不出入库, 由 setup_browser.py 按平台自动下载
+browsers/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# 运行时产物
+logs/
+output/state/
+output/.share_token
+output/.cj.txt
+
+# 本地抓取的原始 CSV 不入库 —— 入库的只有 docs/data/ 下那份同步副本,
+# 否则每次抓取会在仓库里留下两份相同的 200KB diff。
+output/*.csv
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

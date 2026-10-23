@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>汽车之家口碑抓取台</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --line: #e4e7ec;
+    --line-soft: #f0f2f5;
+    --ink: #101828;
+    --ink-2: #475467;
+    --ink-3: #98a2b3;
+    --primary: #2f5fe0;
+    --primary-dark: #2449b5;
+    --ok: #067647;
+    --ok-bg: #ecfdf3;
+    --warn: #b54708;
+    --warn-bg: #fffaeb;
+    --err: #b42318;
+    --err-bg: #fef3f2;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 20px 56px; }
+
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; }
+  .logo {
+    width: 34px; height: 34px; border-radius: 9px; flex: 0 0 auto;
+    background: linear-gradient(140deg, #2f5fe0, #5b8def);
+    display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 15px;
+  }
+  h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: .2px; }
+  .sub { font-size: 12.5px; color: var(--ink-3); margin-top: 1px; }
+  .badge {
+    margin-left: auto; font-size: 12.5px; font-weight: 500; padding: 5px 11px;
+    border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--ink-2);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); }
+  .badge.run { color: var(--ok); border-color: #abefc6; background: var(--ok-bg); }
+  .badge.run .dot { background: #12b76a; animation: pulse 1.4s ease-in-out infinite; }
+  .badge.done { color: var(--primary); border-color: #c7d7fe; background: #eff4ff; }
+  .badge.done .dot { background: var(--primary); }
+  .badge.err { color: var(--err); border-color: #fecdca; background: var(--err-bg); }
+  .badge.err .dot { background: var(--err); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .grid { display: grid; grid-template-columns: 380px 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 18px;
+  }
+  .card + .card { margin-top: 16px; }
+  .card h2 {
+    font-size: 13px; font-weight: 600; margin: 0 0 14px; color: var(--ink-2);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .card h2 .hint { font-weight: 400; font-size: 11.5px; color: var(--ink-3); }
+
+  label { display: block; font-size: 12.5px; color: var(--ink-2); margin-bottom: 5px; }
+  .field { margin-bottom: 13px; }
+  input[type=text], input[type=number] {
+    width: 100%; padding: 8px 11px; font: inherit; font-size: 13.5px; color: var(--ink);
+    background: #fcfcfd; border: 1px solid var(--line); border-radius: 7px; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(47,95,224,.1); background: #fff; }
+  input:disabled { background: #f9fafb; color: var(--ink-3); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+
+  /* 车型名候选下拉 */
+  .ac-wrap { position: relative; }
+  .ac {
+    position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20;
+    background: #fff; border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 10px 26px -8px rgba(16,24,40,.18);
+    max-height: 236px; overflow-y: auto; display: none;
+  }
+  .ac.show { display: block; }
+  .ac .it {
+    padding: 8px 11px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .ac .it:last-child { border-bottom: none; }
+  .ac .it:hover, .ac .it.on { background: #f4f7ff; }
+  .ac .it .nm { flex: 1; color: var(--ink); font-size: 13px; }
+  .ac .it .pr { color: var(--ink-3); font-size: 11.5px; }
+  .ac .it .id {
+    color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums;
+    background: #f2f4f7; padding: 1px 6px; border-radius: 5px;
+  }
+  .ac .none { padding: 10px 11px; color: var(--ink-3); font-size: 12.5px; }
+  .ac-hint { font-size: 11.5px; color: var(--ink-3); margin-top: 5px; line-height: 1.5; }
+  .ac-hint b { color: var(--ink-2); font-weight: 500; }
+
+  .check { display: flex; align-items: flex-start; gap: 9px; margin: 4px 0 16px; cursor: pointer; }
+  .check input { margin: 2px 0 0; width: 15px; height: 15px; accent-color: var(--primary); flex: 0 0 auto; }
+  .check span { font-size: 12.5px; color: var(--ink-2); line-height: 1.45; }
+  .check em { display: block; font-style: normal; color: var(--ink-3); font-size: 11.5px; margin-top: 1px; }
+
+  .actions { display: flex; gap: 9px; }
+  button {
+    font: inherit; font-size: 13.5px; font-weight: 500; padding: 9px 16px;
+    border-radius: 7px; border: 1px solid transparent; cursor: pointer;
+    transition: background .15s, border-color .15s, opacity .15s;
+  }
+  .btn-primary { background: var(--primary); color: #fff; flex: 1; }
+  .btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+  .btn-ghost { background: #fff; color: var(--ink-2); border-color: var(--line); }
+  .btn-ghost:hover:not(:disabled) { background: #f9fafb; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* 进度 */
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px; }
+  .metric { background: #fafbfc; border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 11px; }
+  .metric .k { font-size: 11px; color: var(--ink-3); margin-bottom: 3px; }
+  .metric .v { font-size: 19px; font-weight: 600; letter-spacing: -.3px; font-variant-numeric: tabular-nums; }
+  .metric .v small { font-size: 12px; font-weight: 400; color: var(--ink-3); margin-left: 2px; }
+
+  .bar { height: 7px; background: #eef0f4; border-radius: 999px; overflow: hidden; }
+  .bar i {
+    display: block; height: 100%; width: 0%; border-radius: 999px;
+    background: linear-gradient(90deg, #2f5fe0, #6b95f5);
+    transition: width .45s cubic-bezier(.4,0,.2,1);
+  }
+  .bar.done i { background: linear-gradient(90deg, #067647, #32b768); }
+  .bar.err i { background: linear-gradient(90deg, #b42318, #f04438); }
+  .bar-meta { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--ink-3); margin-top: 7px; }
+
+  .alert {
+    margin-top: 13px; padding: 9px 12px; border-radius: 7px; font-size: 12.5px;
+    background: var(--err-bg); color: var(--err); border: 1px solid #fecdca;
+  }
+  .alert.hide { display: none; }
+
+  /* 日志 */
+  .log {
+    height: 336px; overflow-y: auto; background: #fbfcfd; border: 1px solid var(--line-soft);
+    border-radius: 8px; padding: 10px 12px; font: 12px/1.62 "Cascadia Mono", Consolas, "Courier New", monospace;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .log .ln { color: #475467; }
+  .log .ts { color: #b0b8c4; }
+  .log .lv-i { color: #2f5fe0; }
+  .log .lv-w { color: #b54708; }
+  .log .lv-e { color: #b42318; }
+  .log .empty { color: var(--ink-3); font-family: inherit; }
+
+  /* 预览表 */
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th {
+    text-align: left; font-weight: 500; color: var(--ink-3); font-size: 11.5px;
+    padding: 0 8px 7px 0; border-bottom: 1px solid var(--line-soft);
+  }
+  td { padding: 7px 8px 7px 0; border-bottom: 1px solid var(--line-soft); color: var(--ink-2); }
+  td.title { color: var(--ink); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.num { font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+  .score { color: var(--ink); font-weight: 500; }
+
+  .dl { display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
+        color: var(--primary); font-weight: 500; font-size: 13px; }
+  .dl:hover { text-decoration: underline; }
+  .dl[aria-disabled=true] { color: var(--ink-3); pointer-events: none; text-decoration: none; }
+  .muted { color: var(--ink-3); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">口</div>
+    <div>
+      <h1>汽车之家口碑抓取台</h1>
+      <div class="sub">k.autohome.com.cn · 单线程 · 随机间隔 1–3s</div>
+    </div>
+    <div class="badge" id="badge"><span class="dot"></span><span id="badgeText">空闲</span></div>
+  </header>
+
+  <div class="grid">
+    <!-- 左栏 -->
+    <div>
+      <div class="card">
+        <h2>抓取配置</h2>
+
+        <div class="field">
+          <label for="series">车型名称</label>
+          <div class="ac-wrap" id="acWrap">
+            <input type="text" id="series" value="" autocomplete="off"
+                   placeholder="如 零跑C10 / RAV4 / 宝马3系">
+            <div class="ac" id="ac"></div>
+          </div>
+          <div class="ac-hint" id="acHint">
+            输入中文名或英文名，选中候选项即可；也可直接填车系ID。多个车型用<b>逗号</b>分隔。
+          </div>
+        </div>
+
+        <div class="row2">
+          <div class="field">
+            <label for="pages">页数</label>
+            <input type="number" id="pages" value="2" min="1" max="200">
+          </div>
+          <div class="field">
+            <label for="csv">输出文件</label>
+            <input type="text" id="csv" value="autohome_koubei.csv">
+          </div>
+        </div>
+
+        <label class="check">
+          <input type="checkbox" id="fullText" checked>
+          <span>抓取详情页全文
+            <em>关闭后只用列表页摘要，速度约快 10 倍</em>
+          </span>
+        </label>
+
+        <div class="actions">
+          <button class="btn-primary" id="btnStart">开始抓取</button>
+          <button class="btn-ghost" id="btnStop" disabled>停止</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>运行进度 <span class="hint" id="elapsedHint"></span></h2>
+        <div class="metrics">
+          <div class="metric">
+            <div class="k">本次完成</div>
+            <div class="v" id="mDone">0<small>条</small></div>
+          </div>
+          <div class="metric">
+            <div class="k">目标</div>
+            <div class="v" id="mTarget">—<small>条</small></div>
+          </div>
+          <div class="metric">
+            <div class="k">文件总计</div>
+            <div class="v" id="mTotal">0<small>条</small></div>
+          </div>
+        </div>
+        <div class="bar" id="bar"><i id="barFill"></i></div>
+        <div class="bar-meta">
+          <span id="barLeft">等待开始</span>
+          <span id="barRight"></span>
+        </div>
+        <div class="alert hide" id="alert"></div>
+      </div>
+
+      <div class="card">
+        <h2>数据文件 <span class="hint" id="csvSize"></span></h2>
+        <a class="dl" id="dl" aria-disabled="true" href="/api/download">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          下载 <span id="csvName">autohome_koubei.csv</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- 右栏 -->
+    <div>
+      <div class="card">
+        <h2>运行日志 <span class="hint">实时</span></h2>
+        <div class="log" id="log"><span class="empty">尚未开始。配置左侧参数后点「开始抓取」。</span></div>
+      </div>
+
+      <div class="card">
+        <h2>最新入库 <span class="hint">最近 5 条</span></h2>
+        <table>
+          <thead>
+            <tr><th style="width:88px">发表</th><th style="width:52px">评分</th><th>标题</th><th style="width:56px">地点</th></tr>
+          </thead>
+          <tbody id="recent">
+            <tr><td colspan="4" class="muted">暂无数据</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const el = {
+    series: $('series'), pages: $('pages'), csv: $('csv'), fullText: $('fullText'),
+    acWrap: $('acWrap'), ac: $('ac'), acHint: $('acHint'),
+    btnStart: $('btnStart'), btnStop: $('btnStop'),
+    badge: $('badge'), badgeText: $('badgeText'),
+    mDone: $('mDone'), mTarget: $('mTarget'), mTotal: $('mTotal'),
+    bar: $('bar'), barFill: $('barFill'), barLeft: $('barLeft'), barRight: $('barRight'),
+    alert: $('alert'), log: $('log'), recent: $('recent'),
+    dl: $('dl'), csvName: $('csvName'), csvSize: $('csvSize'), elapsedHint: $('elapsedHint'),
+  };
+
+  const HINT_DEFAULT = '输入中文名或英文名，选中候选项即可；也可直接填车系ID。多个车型用逗号分隔。';
+  let selected = null;      // {id, name} —— 用户从下拉里明确选中的车系
+  let acTimer = null;
+  let acSeq = 0;            // 防止慢请求覆盖新结果
+  let lastLogLen = -1;
+  let pollTimer = null;
+
+  // ---- 车型名候选 ---- //
+  function hideAc() {
+    el.ac.classList.remove('show');
+    el.ac.replaceChildren();
+  }
+
+  function renderAc(list, q) {
+    if (!list.length) {
+      const d = document.createElement('div');
+      d.className = 'none';
+      d.textContent = `没有找到「${q}」对应的车系，试试更短的关键词`;
+      el.ac.replaceChildren(d);
+      el.ac.classList.add('show');
+      return;
+    }
+    el.ac.replaceChildren(...list.map(c => {
+      const it = document.createElement('div');
+      it.className = 'it';
+      const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = c.name;
+      const pr = document.createElement('span'); pr.className = 'pr'; pr.textContent = c.price || '';
+      const id = document.createElement('span'); id.className = 'id'; id.textContent = 'ID ' + c.id;
+      it.append(nm, pr, id);
+      it.addEventListener('mousedown', ev => { ev.preventDefault(); pick(c); });
+      return it;
+    }));
+    el.ac.classList.add('show');
+  }
+
+  function pick(c) {
+    selected = c;
+    el.series.value = c.name;
+    hideAc();
+    el.acHint.innerHTML = `已选择 <b>${c.name}</b>（车系ID <b>${c.id}</b>）`;
+  }
+
+  async function doSearch(q) {
+    const seq = ++acSeq;
+    try {
+      const r = await fetch('/api/search?q=' + encodeURIComponent(q));
+      const d = await r.json();
+      if (seq !== acSeq) return;         // 已有更新的请求，丢弃旧结果
+      renderAc(d.candidates || [], q);
+    } catch (e) { /* 网络抖动忽略 */ }
+  }
+
+  el.series.addEventListener('input', () => {
+    selected = null;
+    el.acHint.textContent = HINT_DEFAULT;
+    clearTimeout(acTimer);
+    const q = el.series.value.trim();
+    // 纯数字(ID) 或 多车型(逗号分隔) 时不弹候选，交给后端解析
+    if (!q || /^\d+$/.test(q) || /[,，]/.test(q)) { hideAc(); return; }
+    acTimer = setTimeout(() => doSearch(q), 300);
+  });
+
+  el.series.addEventListener('focus', () => {
+    const q = el.series.value.trim();
+    if (q && !/^\d+$/.test(q) && !/[,，]/.test(q)) doSearch(q);
+  });
+
+  el.series.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape') hideAc();
+  });
+
+  document.addEventListener('mousedown', ev => {
+    if (!el.acWrap.contains(ev.target)) hideAc();
+  });
+
+  const setBadge = (text, cls) => { el.badgeText.textContent = text; el.badge.className = 'badge' + (cls ? ' ' + cls : ''); };
+
+  function renderLog(lines) {
+    if (lines.length === lastLogLen) return;
+    const atBottom = el.log.scrollHeight - el.log.scrollTop - el.log.clientHeight < 60;
+    lastLogLen = lines.length;
+
+    if (!lines.length) {
+      el.log.innerHTML = '<span class="empty">尚未开始。配置左侧参数后点「开始抓取」。</span>';
+      return;
+    }
+    const frag = document.createDocumentFragment();
+    lines.forEach(raw => {
+      const d = document.createElement('div');
+      d.className = 'ln';
+      // 形如 "2026-10-22 14:21:02,185 INFO    消息"
+      const m = raw.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s+(INFO|WARNING|ERROR|DEBUG|CRITICAL)\s+(.*)$/);
+      if (m) {
+        const ts = document.createElement('span'); ts.className = 'ts'; ts.textContent = m[1].slice(11) + ' ';
+        const lv = document.createElement('span');
+        lv.className = m[2].startsWith('W') ? 'lv-w' : (m[2].startsWith('E') || m[2].startsWith('C')) ? 'lv-e' : 'lv-i';
+        lv.textContent = m[2].padEnd(7, ' ');
+        d.append(ts, lv, document.createTextNode(m[3]));
+      } else {
+        d.textContent = raw;
+      }
+      frag.appendChild(d);
+    });
+    el.log.replaceChildren(frag);
+    if (atBottom) el.log.scrollTop = el.log.scrollHeight;
+  }
+
+  function renderRecent(rows) {
+    if (!rows || !rows.length) {
+      el.recent.innerHTML = '<tr><td colspan="4" class="muted">暂无数据</td></tr>';
+      return;
+    }
+    el.recent.replaceChildren(...rows.map(r => {
+      const tr = document.createElement('tr');
+      const td1 = document.createElement('td'); td1.className = 'num'; td1.textContent = r.time || '—';
+      const td2 = document.createElement('td'); td2.className = 'score'; td2.textContent = r.score || '—';
+      const td3 = document.createElement('td'); td3.className = 'title'; td3.textContent = r.title || '—';
+      const td4 = document.createElement('td'); td4.textContent = r.place || '—';
+      tr.append(td1, td2, td3, td4);
+      return tr;
+    }));
+  }
+
+  function apply(s) {
+    const running = s.running;
+    el.btnStart.disabled = running;
+    el.btnStop.disabled = !running;
+    [el.series, el.pages, el.csv, el.fullText].forEach(x => x.disabled = running);
+    if (running && el.ac.classList.contains('show')) hideAc();
+
+    el.mDone.innerHTML = `${s.done}<small>条</small>`;
+    el.mTarget.innerHTML = s.target ? `${s.target}<small>条</small>` : '—<small>条</small>';
+    el.mTotal.innerHTML = `${s.rows_total}<small>条</small>`;
+
+    const pct = running || s.exit_code === 0 ? s.percent : s.percent;
+    el.barFill.style.width = pct + '%';
+    el.bar.className = 'bar' + (s.error ? ' err' : (s.percent >= 100 && !running ? ' done' : ''));
+    el.barLeft.textContent = running ? `进行中 ${pct}%` : (s.exit_code === 0 ? `已完成 ${pct}%` : (s.exit_code != null ? '已中断' : '等待开始'));
+    el.barRight.textContent = s.elapsed ? `已用 ${s.elapsed}s` : '';
+    el.elapsedHint.textContent = s.elapsed ? `${s.elapsed}s` : '';
+
+    if (s.error) { el.alert.textContent = s.error; el.alert.classList.remove('hide'); }
+    else el.alert.classList.add('hide');
+
+    if (running) setBadge('运行中', 'run');
+    else if (s.error) setBadge('出错', 'err');
+    else if (s.exit_code === 0) setBadge('已完成', 'done');
+    else if (s.exit_code === 130) setBadge('已停止', '');
+    else setBadge('空闲', '');
+
+    if (s.csv) el.csvName.textContent = s.csv;
+    el.csvSize.textContent = s.csv_size && s.csv_size !== '-' ? s.csv_size : '';
+    el.dl.setAttribute('aria-disabled', s.rows_total > 0 ? 'false' : 'true');
+
+    renderLog(s.log || []);
+    renderRecent(s.recent);
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch('/api/status', { cache: 'no-store' });
+      if (r.ok) apply(await r.json());
+    } catch (e) { /* 服务重启瞬间会失败，下一轮自动恢复 */ }
+  }
+
+  async function post(url, body) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {})
+    });
+    let data = {};
+    try { data = await r.json(); } catch (e) {}
+    return { ok: r.ok && data.ok !== false, msg: data.msg || '' };
+  }
+
+  el.btnStart.addEventListener('click', async () => {
+    const text = el.series.value.trim();
+    if (!text) {
+      el.alert.textContent = '请先填写车型名称，例如 零跑C10';
+      el.alert.classList.remove('hide');
+      el.series.focus();
+      return;
+    }
+    hideAc();
+    el.btnStart.disabled = true;
+    el.btnStart.textContent = '解析车型…';
+
+    const body = {
+      pages: Number(el.pages.value || 1),
+      full_text: el.fullText.checked,
+      csv: el.csv.value.trim() || 'autohome_koubei.csv',
+    };
+    // 从下拉里明确选过、且不是多车型时，直接送精确ID，避免同名歧义
+    if (selected && !/[,，]/.test(text)) body.ids = [selected.id];
+    else body.series = text;
+
+    const res = await post('/api/start', body);
+    el.btnStart.textContent = '开始抓取';
+    if (!res.ok) {
+      el.alert.textContent = res.msg || '启动失败';
+      el.alert.classList.remove('hide');
+      el.btnStart.disabled = false;
+    } else {
+      el.alert.classList.add('hide');
+    }
+    lastLogLen = -1;
+    poll();
+  });
+
+  el.btnStop.addEventListener('click', async () => {
+    el.btnStop.disabled = true;
+    el.btnStop.textContent = '停止中…';
+    await post('/api/stop');
+    el.btnStop.textContent = '停止';
+    poll();
+  });
+
+  poll();
+  pollTimer = setInterval(poll, 1200);
+  window.addEventListener('beforeunload', () => clearInterval(pollTimer));
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>汽车之家口碑数据</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f5eff'/%3E%3Cpath d='M7 22v-12h3.4l5.6 7 5.6-7H25v12h-3.2v-6.6L16 22l-5.8-6.6V22z' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --line:#e3e6ec; --line-soft:#eef0f4;
+    --text:#1a1d23; --text-2:#5b6472; --text-3:#8b94a3;
+    --accent:#1f5eff; --accent-soft:#eaf0ff;
+    --warn:#b26a00; --warn-bg:#fff8e6;
+    --radius:10px;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--text);
+    font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1360px;margin:0 auto;padding:28px 20px 64px}
+
+  /* ---------- 头部 ---------- */
+  header{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
+  h1{margin:0;font-size:21px;font-weight:650;letter-spacing:-.2px}
+  .sub{margin-top:5px;color:var(--text-3);font-size:12.5px}
+  .sub .dot{margin:0 7px;color:#cdd3dc}
+  .actions{display:flex;gap:9px;flex-wrap:wrap}
+  .btn{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:8px 14px;border-radius:8px;border:1px solid var(--line);
+    background:var(--panel);color:var(--text);font-size:13px;font-weight:520;
+    text-decoration:none;cursor:pointer;transition:.14s;
+    white-space:nowrap;
+  }
+  .btn:hover{border-color:#c9d0db;background:#fcfcfe}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn-primary:hover{background:#1a52e0;border-color:#1a52e0}
+  .btn[aria-disabled="true"]{opacity:.45;pointer-events:none}
+
+  /* ---------- 统计卡 ---------- */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px;margin-bottom:18px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:13px 15px}
+  .stat .k{font-size:11.5px;color:var(--text-3);letter-spacing:.3px;margin-bottom:3px}
+  .stat .v{font-size:20px;font-weight:640;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
+  .stat .v small{font-size:12px;font-weight:500;color:var(--text-3);margin-left:2px}
+  .stat .v.long{font-size:13.5px;font-weight:560;letter-spacing:0;line-height:1.4;word-break:break-word}
+
+  /* ---------- 工具栏 ---------- */
+  .toolbar{
+    display:flex;flex-wrap:wrap;gap:9px;align-items:center;
+    background:var(--panel);border:1px solid var(--line);border-bottom:none;
+    border-radius:var(--radius) var(--radius) 0 0;padding:12px 14px;
+  }
+  .field{position:relative;display:flex;align-items:center}
+  .field svg{position:absolute;left:10px;color:var(--text-3);pointer-events:none}
+  input[type=search],select{
+    height:34px;border:1px solid var(--line);border-radius:8px;background:#fff;
+    color:var(--text);font-size:13px;font-family:inherit;outline:none;transition:.14s;
+  }
+  input[type=search]{padding:0 12px 0 32px;width:260px}
+  select{padding:0 26px 0 10px;cursor:pointer;appearance:none;
+    background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b94a3'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 9px center}
+  input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .spacer{flex:1}
+  .hint{font-size:12px;color:var(--text-3)}
+
+  /* ---------- 表格 ---------- */
+  .tablebox{background:var(--panel);border:1px solid var(--line);border-radius:0 0 var(--radius) var(--radius);overflow:hidden}
+  .scroll{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  th{
+    position:sticky;top:0;z-index:2;background:#fbfcfe;
+    font-size:11.5px;font-weight:600;color:var(--text-2);letter-spacing:.35px;
+    white-space:nowrap;border-bottom:1px solid var(--line);
+  }
+  th.sortable{cursor:pointer;user-select:none}
+  th.sortable:hover{color:var(--accent)}
+  th .arrow{opacity:.32;margin-left:3px;font-size:9px}
+  th.active .arrow{opacity:1;color:var(--accent)}
+  tbody tr{cursor:pointer;transition:background .1s}
+  tbody tr:hover{background:#fafbff}
+  tbody tr:last-child td{border-bottom:none}
+  td.title{max-width:380px}
+  td.title span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  td.num{font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  td.when{white-space:nowrap;color:var(--text-2)}
+  .score{display:inline-block;min-width:38px;padding:1px 7px;border-radius:5px;font-family:var(--mono);font-size:12px;font-weight:600}
+  .s-hi{background:#e8f5ec;color:#1a7f3c}
+  .s-mid{background:#fff6e5;color:#96620a}
+  .s-lo{background:#fdecec;color:#b3341f}
+  .tag{display:inline-block;padding:1px 7px;border-radius:5px;background:#f0f2f6;color:var(--text-2);font-size:11.5px;white-space:nowrap}
+  .empty{padding:56px 20px;text-align:center;color:var(--text-3)}
+  .empty strong{display:block;color:var(--text-2);font-size:15px;font-weight:600;margin-bottom:6px}
+
+  /* ---------- 分页 ---------- */
+  .pager{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-top:1px solid var(--line);flex-wrap:wrap}
+  .pager .info{font-size:12.5px;color:var(--text-3);font-variant-numeric:tabular-nums}
+  .pager .nav{display:flex;gap:6px}
+  .pager button{
+    height:30px;min-width:30px;padding:0 10px;border:1px solid var(--line);background:#fff;
+    border-radius:7px;font-size:12.5px;color:var(--text-2);cursor:pointer;font-family:inherit;transition:.14s
+  }
+  .pager button:hover:not(:disabled){border-color:#c9d0db;color:var(--text)}
+  .pager button:disabled{opacity:.4;cursor:default}
+
+  /* ---------- 详情弹窗 ---------- */
+  dialog{
+    border:none;border-radius:14px;padding:0;max-width:760px;width:calc(100% - 32px);
+    max-height:84vh;box-shadow:0 18px 60px rgba(16,24,40,.22);color:var(--text);
+  }
+  dialog::backdrop{background:rgba(16,24,40,.42);backdrop-filter:blur(2px)}
+  .dlg-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:18px 20px 14px;border-bottom:1px solid var(--line-soft)}
+  .dlg-head h2{margin:0;font-size:15.5px;font-weight:640;line-height:1.4}
+  .dlg-head .meta{margin-top:4px;font-size:12.5px;color:var(--text-3)}
+  .close{border:none;background:#f2f4f8;width:28px;height:28px;border-radius:7px;cursor:pointer;color:var(--text-2);font-size:15px;line-height:1;flex-shrink:0}
+  .close:hover{background:#e8ebf1}
+  .dlg-body{padding:16px 20px 22px;overflow-y:auto;max-height:calc(84vh - 78px)}
+  .kv{display:grid;grid-template-columns:150px 1fr;gap:0;border-top:1px solid var(--line-soft)}
+  .kv > div{padding:8px 0;border-bottom:1px solid var(--line-soft);font-size:13px}
+  .kv .k{color:var(--text-3);font-size:12.5px}
+  .kv .v{white-space:pre-wrap;word-break:break-word}
+  .kv .v.blank{color:#c3c9d3}
+
+  .note{margin-top:22px;padding:13px 15px;border-radius:9px;background:var(--warn-bg);border:1px solid #f2e2bd;color:#7a5100;font-size:12.5px;line-height:1.65}
+  .note b{font-weight:640}
+  footer{margin-top:18px;text-align:center;font-size:12px;color:var(--text-3);line-height:1.7}
+  footer a{color:var(--text-2);text-decoration:none;border-bottom:1px solid var(--line)}
+  footer a:hover{color:var(--accent);border-color:var(--accent)}
+
+  @media (max-width:640px){
+    .wrap{padding:20px 13px 48px}
+    input[type=search]{width:100%}
+    .field{flex:1;min-width:150px}
+    td.title{max-width:210px}
+    .kv{grid-template-columns:110px 1fr}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>汽车之家口碑数据</h1>
+      <div class="sub" id="sub">正在载入…</div>
+    </div>
+    <div class="actions">
+      <a class="btn" id="download" href="data/koubei.csv" download>下载 CSV</a>
+      <a class="btn" id="runlog" href="#" target="_blank" rel="noopener">查看抓取日志</a>
+      <a class="btn btn-primary" id="request" href="#" target="_blank" rel="noopener">申请抓取新车型</a>
+    </div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="toolbar">
+    <div class="field">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7">
+        <circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5" stroke-linecap="round"/>
+      </svg>
+      <input type="search" id="q" placeholder="搜索车型 / 标题 / 地点 / 用户" autocomplete="off">
+    </div>
+    <select id="series"><option value="">全部车系</option></select>
+    <select id="sort">
+      <option value="time-desc">最新发表在前</option>
+      <option value="time-asc">最早发表在前</option>
+      <option value="score-desc">评分从高到低</option>
+      <option value="score-asc">评分从低到高</option>
+      <option value="view-desc">观看数从高到低</option>
+    </select>
+    <div class="spacer"></div>
+    <div class="hint" id="hint"></div>
+  </div>
+
+  <div class="tablebox">
+    <div class="scroll">
+      <table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="pager">
+      <div class="info" id="pinfo"></div>
+      <div class="nav">
+        <button id="prev" type="button">上一页</button>
+        <button id="next" type="button">下一页</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>数据来源与使用边界</b>：本页数据来自汽车之家口碑频道的公开内容，仅供个人研究与产品分析参考，不得用于商业转载或二次分发。
+    抓取遵守目标站点的 robots 协议，请求间隔 1–3 秒、单线程串行，不并发、不绕过登录墙。
+    抓取任务由 GitHub Actions 定时执行，数据每跑一次增量更新一次。
+  </div>
+
+  <footer>
+    <div id="foot"></div>
+  </footer>
+</div>
+
+<dialog id="dlg">
+  <div class="dlg-head">
+    <div>
+      <h2 id="dlg-title">—</h2>
+      <div class="meta" id="dlg-meta"></div>
+    </div>
+    <button class="close" id="dlg-close" type="button" aria-label="关闭">×</button>
+  </div>
+  <div class="dlg-body"><div class="kv" id="dlg-kv"></div></div>
+</dialog>
+
+<script>
+(function () {
+  "use strict";
+
+  // 关键列优先展示, 其余字段收进详情弹窗。
+  // key 是候选列名数组: 站点改字段名时(比如「裸车价」实际叫「裸车购买价」),
+  // 只要有一个对得上就行; 全对不上这一列会被自动隐藏, 不会整列显示破折号。
+  var PRIMARY = [
+    { id: "title",  key: ["口碑标题"],              label: "口碑标题", cls: "title" },
+    { id: "ver",    key: ["车型版本"],              label: "车型版本", cls: "" },
+    { id: "score",  key: ["综合口碑评分", "评分"],   label: "评分",     cls: "num", sort: "score" },
+    { id: "time",   key: ["发表时间"],              label: "发表时间", cls: "when", sort: "time" },
+    { id: "place",  key: ["购买地点"],              label: "购买地点", cls: "" },
+    { id: "km",     key: ["行驶里程"],              label: "行驶里程", cls: "num" },
+    { id: "price",  key: ["裸车购买价", "裸车价", "购车价格"], label: "裸车价", cls: "num" },
+    { id: "view",   key: ["观看数"],                label: "观看数",   cls: "num", sort: "view" }
+  ];
+  var active = [];   // 当前数据里真实存在的列
+
+  var state = { header: [], rows: [], cols: {}, view: [], page: 1, size: 50, sort: "time-desc" };
+
+  // ---------- CSV 解析(RFC4180 状态机) ----------
+  // 不能用 split(',') —— 口碑标题里经常带英文逗号, 会被拆错列。
+  function parseCsv(text) {
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    var rows = [], row = [], cur = "", q = false, i = 0, c;
+    for (; i < text.length; i++) {
+      c = text[i];
+      if (q) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { cur += '"'; i++; }
+          else q = false;
+        } else cur += c;
+      } else if (c === '"') q = true;
+      else if (c === ",") { row.push(cur); cur = ""; }
+      else if (c === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; }
+      else if (c === "\r") { /* 忽略, 交给 \n 处理 */ }
+      else cur += c;
+    }
+    if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
+    return rows.filter(function (r) { return r.length > 1 || (r.length === 1 && r[0].trim() !== ""); });
+  }
+
+  // 先按列名精确匹配, 全都不中就退化为子串包含, 再不行返回 -1(调用方负责隐藏该列)
+  function colIndex(header, keys) {
+    if (!Array.isArray(keys)) keys = [keys];
+    var i, k;
+    for (k = 0; k < keys.length; k++)
+      for (i = 0; i < header.length; i++)
+        if (header[i] === keys[k]) return i;
+    for (k = 0; k < keys.length; k++)
+      for (i = 0; i < header.length; i++)
+        if (header[i].indexOf(keys[k]) !== -1) return i;
+    return -1;
+  }
+
+  function cellOf(r, id) {
+    var i = state.cols[id];
+    if (i === undefined) { state.cols[id] = i = -1; }
+    return (i < 0 || i >= r.length) ? "" : r[i];
+  }
+
+  function val(r, key) {
+    var i = state.cols[key];
+    if (i === undefined) state.cols[key] = i = colIndex(state.header, key);
+    return (i < 0 || i >= r.length) ? "" : r[i];
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (m) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m];
+    });
+  }
+
+  function num(s) {
+    var v = parseFloat(String(s).replace(/[^\d.\-]/g, ""));
+    return isNaN(v) ? -Infinity : v;
+  }
+
+  // ---------- 渲染 ----------
+  function scoreClass(s) {
+    var v = num(s);
+    if (v >= 4.5) return "s-hi";
+    if (v >= 4.0) return "s-mid";
+    return v === -Infinity ? "" : "s-lo";
+  }
+
+  function renderHead() {
+    var tr = document.getElementById("thead");
+    tr.innerHTML = active.map(function (c) {
+      var active_sort = state.sort.indexOf(c.sort || "\u0000") === 0;
+      var arrow = c.sort ? '<span class="arrow">' + (active_sort ? (state.sort.indexOf("desc") > 0 ? "▼" : "▲") : "◆") + "</span>" : "";
+      return '<th class="' + (c.sort ? "sortable" : "") + (active_sort ? " active" : "") +
+             '" data-sort="' + (c.sort || "") + '">' + esc(c.label) + arrow + "</th>";
+    }).join("");
+  }
+
+  function renderBody() {
+    var tb = document.getElementById("tbody");
+    var ncol = active.length || 1;
+    var start = (state.page - 1) * state.size;
+    var slice = state.view.slice(start, start + state.size);
+
+    if (!state.rows.length) {
+      tb.innerHTML = '<tr><td colspan="' + ncol + '"><div class="empty">' +
+        "<strong>还没有数据</strong>点击右上角「申请抓取新车型」，或在仓库的 Actions 页面手动运行一次。" +
+        "</div></td></tr>";
+      return;
+    }
+    if (!slice.length) {
+      tb.innerHTML = '<tr><td colspan="' + ncol + '"><div class="empty">' +
+        "<strong>没有匹配的记录</strong>换个关键词或清空筛选条件。" +
+        "</div></td></tr>";
+      return;
+    }
+
+    tb.innerHTML = slice.map(function (r) {
+      var idx = state.rows.indexOf(r);
+      return "<tr data-i=\"" + idx + "\">" + active.map(function (c) {
+        var v = cellOf(r, c.id);
+        if (c.id === "title") return '<td class="title"><span>' + esc(v || "（无标题）") + "</span></td>";
+        if (c.id === "score") return '<td class="num"><span class="score ' + scoreClass(v) + '">' + esc(v || "—") + "</span></td>";
+        if (c.id === "ver") return '<td><span class="tag">' + esc(v || "—") + "</span></td>";
+        return '<td class="' + (c.cls || "") + '">' + esc(v || "—") + "</td>";
+      }).join("") + "</tr>";
+    }).join("");
+  }
+
+  function renderPager() {
+    var total = state.view.length;
+    var pages = Math.max(1, Math.ceil(total / state.size));
+    if (state.page > pages) state.page = pages;
+    var from = total ? (state.page - 1) * state.size + 1 : 0;
+    var to = Math.min(state.page * state.size, total);
+    document.getElementById("pinfo").textContent =
+      total ? ("第 " + from + "–" + to + " 条，共 " + total + " 条" + (total !== state.rows.length ? "（已筛选）" : "")) : "共 0 条";
+    document.getElementById("prev").disabled = state.page <= 1;
+    document.getElementById("next").disabled = state.page >= pages;
+  }
+
+  function renderStats() {
+    var box = document.getElementById("stats");
+    var seriesSet = {}, scores = [], views = 0, dates = [];
+    state.rows.forEach(function (r) {
+      var s = val(r, "车系名称"); if (s) seriesSet[s] = 1;
+      var sc = num(val(r, "综合口碑评分")); if (sc > -Infinity) scores.push(sc);
+      var vw = num(val(r, "观看数")); if (vw > -Infinity) views += vw;
+      var d = val(r, "发表时间"); if (d) dates.push(d);
+    });
+    var avg = scores.length ? (scores.reduce(function (a, b) { return a + b; }, 0) / scores.length) : 0;
+    dates.sort();
+    var span = dates.length ? (dates[0].slice(0, 7) + " ~ " + dates[dates.length - 1].slice(0, 7)) : "—";
+
+    box.innerHTML = [
+      ["口碑总数", state.rows.length, "条"],
+      ["覆盖车系", Object.keys(seriesSet).length, "个"],
+      ["平均评分", avg ? avg.toFixed(2) : "—", ""],
+      ["观看数合计", views >= 10000 ? (views / 10000).toFixed(1) : views, views >= 10000 ? "万" : ""],
+      ["时间跨度", span, ""]
+    ].map(function (it) {
+      var text = String(it[1]);
+      var cls = text.length > 9 ? "v long" : "v";
+      return '<div class="stat"><div class="k">' + it[0] + '</div><div class="' + cls + '">' +
+        esc(text) + (it[2] ? "<small>" + it[2] + "</small>" : "") + "</div></div>";
+    }).join("");
+  }
+
+  function applyFilter() {
+    var q = document.getElementById("q").value.trim().toLowerCase();
+    var series = document.getElementById("series").value;
+    var sort = document.getElementById("sort").value;
+    state.sort = sort;
+
+    state.view = state.rows.filter(function (r) {
+      if (series && val(r, "车系名称") !== series) return false;
+      if (!q) return true;
+      var hay = [val(r, "车系名称"), val(r, "口碑标题"), val(r, "购买地点"),
+                 val(r, "用户昵称"), val(r, "车型版本")].join(" ").toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+
+    var parts = sort.split("-");
+    var field = parts[0], dir = parts[1] === "asc" ? 1 : -1;
+    state.view.sort(function (a, b) {
+      var va, vb;
+      if (field === "time") { va = val(a, "发表时间"); vb = val(b, "发表时间"); return va < vb ? -dir : va > vb ? dir : 0; }
+      va = num(val(a, field === "score" ? "综合口碑评分" : "观看数"));
+      vb = num(val(b, field === "score" ? "综合口碑评分" : "观看数"));
+      return (va - vb) * dir;
+    });
+
+    state.page = 1;
+    renderHead(); renderBody(); renderPager();
+    document.getElementById("hint").textContent =
+      state.view.length !== state.rows.length ? ("筛出 " + state.view.length + " 条") : "";
+  }
+
+  // ---------- 详情弹窗 ----------
+  function openDetail(r) {
+    document.getElementById("dlg-title").textContent = val(r, "口碑标题") || "（无标题）";
+    document.getElementById("dlg-meta").textContent =
+      [val(r, "车系名称"), val(r, "车型版本"), val(r, "发表时间")].filter(Boolean).join(" · ");
+
+    var skip = { "口碑标题": 1 };
+    var html = "";
+    state.header.forEach(function (name, i) {
+      if (skip[name]) return;
+      var v = (i < r.length ? r[i] : "") || "";
+      html += '<div class="k">' + esc(name) + "</div>" +
+              '<div class="v' + (v.trim() ? "" : " blank") + '">' + esc(v.trim() ? v : "无数据") + "</div>";
+    });
+    document.getElementById("dlg-kv").innerHTML = html;
+    document.getElementById("dlg").showModal();
+  }
+
+  // ---------- 启动 ----------
+  // 仓库地址: 优先用 meta.json 里的完整仓库名(自定义域名下也正确),
+  // 拿不到才从 *.github.io 的 hostname 反推。
+  function setLinks(full) {
+    var base;
+    if (full) {
+      base = "https://github.com/" + full;
+    } else {
+      var parts = location.hostname.split(".");
+      var owner = parts[0];
+      var repo = location.pathname.split("/").filter(Boolean)[0] || "";
+      base = repo ? ("https://github.com/" + owner + "/" + repo) : "https://github.com";
+    }
+    document.getElementById("request").href =
+      base + "/issues/new?title=" + encodeURIComponent("[抓取] 车型名") +
+      "&body=" + encodeURIComponent("请把上面的「车型名」替换成你要查的车型，例如：零跑C10。多个车型用逗号分隔。");
+    document.getElementById("runlog").href = base + "/actions/workflows/crawl.yml";
+  }
+
+  function boot() {
+    setLinks(null);
+
+    fetch("data/meta.json", { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (m) {
+        if (!m) return;
+        if (m.repo) setLinks(m.repo);
+        if (m.run_url) document.getElementById("runlog").href = m.run_url;
+        var t = m.updated_at ? new Date(m.updated_at) : null;
+        var when = t ? t.toLocaleString("zh-CN", { hour12: false }) : "未知";
+        var statusText = m.status === "success" ? "正常"
+                       : m.status === "local" ? "本地样本（尚未在云端跑过）"
+                       : (m.status || "—");
+        document.getElementById("foot").innerHTML =
+          "最近一次抓取：" + esc(when) + "　·　参数：" + esc(m.series || "—") +
+          " / " + esc(m.pages || "—") + " 页　·　状态：" + esc(statusText);
+      })
+      .catch(function () {});
+
+    fetch("data/koubei.csv", { cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("CSV 不存在(HTTP " + r.status + ")");
+        return r.text();
+      })
+      .then(function (text) {
+        var all = parseCsv(text);
+        if (!all.length) throw new Error("CSV 为空");
+        state.header = all[0];
+        state.rows = all.slice(1).filter(function (r) {
+          return r.some(function (c) { return String(c).trim() !== ""; });
+        });
+        state.cols = {};
+        active = PRIMARY.map(function (c) {
+          var i = colIndex(state.header, c.key);
+          state.cols[c.id] = i;
+          return i >= 0 ? c : null;
+        }).filter(Boolean);
+        // 极端情况: 所有候选列名都不在(CSV 结构被改), 退化为展示前 6 列, 至少能看到内容
+        if (!active.length) {
+          active = state.header.slice(0, 6).map(function (n, i) {
+            state.cols["c" + i] = i;
+            return { id: "c" + i, label: n, cls: i === 0 ? "title" : "" };
+          });
+        }
+
+        // 车系下拉
+        var set = {};
+        state.rows.forEach(function (r) { var s = val(r, "车系名称"); if (s) set[s] = (set[s] || 0) + 1; });
+        var names = Object.keys(set).sort(function (a, b) { return set[b] - set[a]; });
+        var sel = document.getElementById("series");
+        names.forEach(function (n) {
+          var o = document.createElement("option");
+          o.value = n; o.textContent = n + "（" + set[n] + "）";
+          sel.appendChild(o);
+        });
+
+        document.getElementById("sub").innerHTML =
+          esc(names.length) + " 个车系<span class='dot'>·</span>" +
+          esc(state.rows.length) + " 条口碑<span class='dot'>·</span>" +
+          esc(state.header.length) + " 个字段";
+        document.getElementById("download").href = "data/koubei.csv";
+
+        renderStats(); applyFilter();
+      })
+      .catch(function (e) {
+        document.getElementById("sub").textContent = "数据尚未就绪：" + e.message;
+        renderHead(); renderBody(); renderPager();
+        renderStats();
+      });
+
+    document.getElementById("q").addEventListener("input", applyFilter);
+    document.getElementById("series").addEventListener("change", applyFilter);
+    document.getElementById("sort").addEventListener("change", applyFilter);
+    document.getElementById("prev").addEventListener("click", function () { state.page--; renderBody(); renderPager(); });
+    document.getElementById("next").addEventListener("click", function () { state.page++; renderBody(); renderPager(); });
+
+    document.getElementById("thead").addEventListener("click", function (e) {
+      var th = e.target.closest("th.sortable");
+      if (!th) return;
+      var f = th.getAttribute("data-sort");
+      var cur = state.sort.split("-");
+      var dir = (cur[0] === f && cur[1] === "desc") ? "asc" : "desc";
+      document.getElementById("sort").value = f + "-" + dir;
+      applyFilter();
+    });
+
+    document.getElementById("tbody").addEventListener("click", function (e) {
+      var tr = e.target.closest("tr[data-i]");
+      if (!tr) return;
+      var r = state.rows[parseInt(tr.getAttribute("data-i"), 10)];
+      if (r) openDetail(r);
+    });
+
+    var dlg = document.getElementById("dlg");
+    document.getElementById("dlg-close").addEventListener("click", function () { dlg.close(); });
+    dlg.addEventListener("click", function (e) { if (e.target === dlg) dlg.close(); });
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
+})();
+</script>
+</body>
+</html>

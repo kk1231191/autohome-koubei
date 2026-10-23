@@ -1,0 +1,58 @@
+# 汽车之家口碑抓取配置
+# 所有相对路径都相对于本文件所在目录(项目根)
+
+crawl:
+  # 车型名或车系ID 都可以, 会先经 search.py 解析并校验。
+  #   车型名: 零跑C10 / RAV4 / 宝马3系   （推荐, 避免猜错ID）
+  #   车系ID: 770 / 7382
+  # 命令行 --series 会覆盖这里的值。
+  series_ids: [770]
+  max_pages: 2          # 每个车系抓多少页, 每页 10 条
+  start_page: 1
+  skip_existing: true   # 命中已收录的口碑ID 则跳过, 这是断点续抓的核心
+  full_text: true       # true=进详情页取全文; false=只用列表页摘要(快约 10 倍)
+  # 详情页取法: http=requests 直取(详情页是 SSR, 比开浏览器快约 7 倍) / browser=走渲染器
+  detail_via: http
+
+output:
+  dir: output
+  csv_name: autohome_koubei.csv
+  encoding: utf-8-sig   # 带 BOM, Excel 双击打开不乱码
+  state_dir: output/state
+
+browser:
+  headless: true
+  window_size: "1440,2400"
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
+
+  # 项目内置浏览器目录(由 准备浏览器.bat / setup_browser.py 下载)。
+  # 留空 = <项目根>/browsers
+  browsers_path: ""
+
+  # 显式指定 chrome.exe。留空则自动按: 项目内置 > 系统 Chrome 的顺序找。
+  executable_path: ""
+
+  # 旧 Selenium 方案留下的配置, 当前抓取链路已不再使用(Playwright 不需要 chromedriver)
+  driver_path: ""
+  chrome_binary: ""
+  driver_cache_dir: ""
+
+  # 清空本进程的 *proxy 环境变量 + 浏览器加 --no-proxy-server。
+  # 本机存在 HTTP_PROXY, 不清掉会让 chromium 报 ERR_PROXY_CONNECTION_FAILED。
+  sanitize_proxy_env: true
+  page_load_timeout: 45
+  element_timeout: 20
+  extra_args: []
+
+rate_limit:
+  min_delay: 1.0        # 每个请求之间的随机间隔(秒)
+  max_delay: 3.0
+
+retry:
+  times: 3
+  backoff_base: 2.0     # 第 n 次重试等待 backoff_base ** n 秒
+
+logging:
+  level: INFO
+  dir: logs
+  file_name: autohome_spider.log

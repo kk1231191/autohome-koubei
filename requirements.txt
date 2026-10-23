@@ -1,0 +1,8 @@
+# 本项目在 Python 3.10 / Windows 实测通过
+playwright>=1.40
+lxml>=5.0
+PyYAML>=6.0
+requests>=2.31
+
+# 说明: 不再需要 selenium / webdriver-manager / chromedriver。
+# Playwright 通过 CDP 直接驱动浏览器, 没有"驱动与浏览器版本必须匹配"的问题。
