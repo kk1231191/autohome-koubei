@@ -1,8 +1,8 @@
 {
-  "updated_at": "2026-10-27T08:27:06Z",
-  "series": "大众T6",
+  "updated_at": "2026-10-27T08:31:56Z",
+  "series": "ID.,AURA,T6",
   "pages": "3",
   "repo": "kk1231191/autohome-koubei",
-  "status": "failure",
-  "run_url": "https://github.com/kk1231191/autohome-koubei/actions/runs/40473508715"
+  "status": "success",
+  "run_url": "https://github.com/kk1231191/autohome-koubei/actions/runs/40473778508"
 }
